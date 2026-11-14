@@ -1,0 +1,12 @@
+-nologo
+-target:winexe
+# codepage comes from the UTF-8 BOM
+-out:"dist\AI-Tool-Setup.exe"
+-win32icon:"agtool.ico"
+-r:System.Windows.Forms.dll
+-resource:"dist\AI-Tool.exe",AI-Tool.exe
+-resource:"agtool.ini",agtool.ini
+-resource:"mlm_found_nodes.json",mlm_found_nodes.json
+-resource:"README.txt",README.txt
+"installer\AssemblyInfo.cs"
+"installer\Installer.cs"

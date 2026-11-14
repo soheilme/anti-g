@@ -1,0 +1,47 @@
+# فایل‌های ساخته‌شده و محلی
+__pycache__/
+build/
+dist/
+*.pyc
+*.log
+
+# باینری‌ها و بسته‌های ارسالی (در Releases منتشر می‌شوند، نه در گیت)
+*.exe
+*.zip
+Send-To-Friend/
+dist/
+
+# وضعیت و اطلاعات شخصی
+agtool-state.json
+mlm_winner.json
+mlm_best_node.json
+mlm_nodes.log
+AI-Tool-Profile*.aitool-profile
+ag_hub_login.log
+ag_oauth_*.log
+
+# ابزارهای توسعه که منتشر نمی‌شوند
+_shot_helper.py
+ag_hub_login.py
+ag_oauth_login.py
+mlm_try_nodes.py
+mlm_de.json
+mlm_proven_all.json
+antigravity-cleaner/
+.flags/
+flags/
+.freebuff/
+.sentry-native/
+
+# عکس‌های خام محیط (فقط docs/screenshots منتشر می‌شود)
+/*.png
+wininet_backup.json
+mlm_ws_pick.py
+
+# تنظیمات محلی (شامل کلاینت OAuth)
+agtool.ini
+_publish.py
+
+# فهرست نودهای واقعی (UUID اشتراک) — فقط محلی
+mlm_found_nodes.json
+*.aitool-profile
