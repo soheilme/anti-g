@@ -43,6 +43,13 @@ try:
 except Exception:
     pass
 
+# ترمینال ویندوز ترتیب راست‌به‌چپ را نمی‌فهمد: خطوط فارسی مرتب/راست‌چین می‌شوند
+try:
+    import fa_rtl
+    fa_rtl.install()
+except Exception:
+    pass
+
 # when frozen (AI-Tool.exe) the app lives next to its exe, not inside the temp bundle
 FROZEN = bool(getattr(sys, "frozen", False))
 HERE = (os.path.dirname(os.path.abspath(sys.executable)) if FROZEN

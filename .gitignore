@@ -45,3 +45,10 @@ _publish.py
 # فهرست نودهای واقعی (UUID اشتراک) — فقط محلی
 mlm_found_nodes.json
 *.aitool-profile
+
+# فایل‌های موقت توسعه
+_*.sh
+_*.txt
+_upload*.json
+_rel*
+_o.txt
