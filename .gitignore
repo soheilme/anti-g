@@ -52,3 +52,11 @@ _*.txt
 _upload*.json
 _rel*
 _o.txt
+
+# کلیدها و بکاپ‌های روتر (هرگز نباید عمومی شود)
+_router_key
+_router_key.pub
+_router-backup.json
+_sid*.txt
+_ck*.txt
+_*.json
