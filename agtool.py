@@ -10,6 +10,7 @@ Usage:
     python agtool.py watch 120  -> watchdog: check the tunnel every 120s, switch node when it dies
     python agtool.py autostart on|off|status -> silent watchdog at Windows login
     python agtool.py preflight  -> read-only test before opening Flow/IDE (changes nothing)
+    python agtool.py leak       -> read-only DNS + IPv6 leak check (changes nothing)
     python agtool.py heal force -> allow a node switch even inside the safety cooldown
     python agtool.py history    -> report of IP changes and node switches
 """
@@ -24,9 +25,12 @@ import os
 import re
 import shutil
 import socket
+import ssl
+import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -1291,6 +1295,254 @@ def cmd_heal(force=False):
     print("\n── تعمیر تونل ────────────────────────")
     print(f"  {DIM}سیاست امن: اول همان نود؛ تعویض نود حداکثر هر {MIN_SWITCH_SECONDS // 60} دقیقه{END}")
     return 0 if heal_node(force=force) else 1
+
+
+# ------------------------------------------------- DNS + IPv6 leak checks
+# Both checks are read-only: they only ask questions of the network and never touch
+# a proxy setting, a VPN node or the tunnel state.
+DNS_ECHO_NAME = "o-o.myaddr.l.google.com"  # TXT answer = the IP the resolver goes out with
+_IPCONFIG_CACHE = {"at": 0.0, "text": ""}
+
+
+def _ipconfig_text():
+    """`ipconfig /all` output, cached for a few seconds (two checks use it)."""
+    if time.time() - _IPCONFIG_CACHE["at"] < 5:
+        return _IPCONFIG_CACHE["text"]
+    text = ""
+    try:
+        out = subprocess.run(["ipconfig", "/all"], capture_output=True, timeout=15,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        text = out.stdout.decode("utf-8", "replace")
+    except Exception:
+        pass
+    _IPCONFIG_CACHE.update({"at": time.time(), "text": text})
+    return text
+
+
+def _looks_like_ip(value):
+    value = (value or "").strip(" .")
+    if not value:
+        return False
+    try:
+        socket.inet_pton(socket.AF_INET, value)
+        return True
+    except OSError:
+        pass
+    try:
+        socket.inet_pton(socket.AF_INET6, value)
+        return True
+    except OSError:
+        return False
+
+
+def system_dns_servers():
+    """DNS servers Windows is configured to use (first four are enough to judge)."""
+    servers = []
+
+    def add(value):
+        value = (value or "").strip(" .,\t")
+        if _looks_like_ip(value) and value not in servers:
+            servers.append(value)
+
+    text = _ipconfig_text()
+    in_dns_block = False
+    for line in text.splitlines():
+        if "dns" in line.lower():
+            in_dns_block = True
+            tail = line.split(":", 1)[1] if ":" in line else ""
+            for token in re.split(r"[,\s]+", tail):
+                add(token)
+            continue
+        if in_dns_block and line.startswith((" ", "\t")):
+            stripped = line.strip()
+            if stripped and re.fullmatch(r"[0-9A-Fa-f:.]+", stripped):
+                add(stripped)
+                continue
+        in_dns_block = False
+    if not servers:  # localized ipconfig: fall back to netsh, which repeats the addresses
+        try:
+            out = subprocess.run(["netsh", "interface", "ip", "show", "dns"], capture_output=True,
+                                 timeout=15, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            for token in re.findall(r"(?:\d{1,3}\.){3}\d{1,3}|[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,}",
+                                    out.stdout.decode("utf-8", "replace")):
+                add(token)
+        except Exception:
+            pass
+    return servers
+
+
+def host_ipv6_addresses():
+    """Global IPv6 addresses on this host (link-local and loopback excluded)."""
+    found = []
+    for line in _ipconfig_text().splitlines():
+        if "ipv6" not in line.lower():
+            continue
+        for token in re.findall(r"[0-9A-Fa-f:]{6,}", line):
+            token = token.strip(":")
+            low = token.lower()
+            if token.count(":") < 2 or low.startswith(("fe80", "ff", "2001:db8")):
+                continue
+            if low in ("::1", "::") or len(low.split(":")) < 3:
+                continue
+            if token not in found:
+                found.append(token)
+    return found
+
+
+def _dns_query_txt(name, server, timeout=2.5):
+    """One TXT query over UDP 53, answered by `server` itself. Empty string on failure."""
+    qname = b"".join(bytes([len(p)]) + p.encode("ascii") for p in name.split(".")) + b"\x00"
+    packet = os.urandom(2) + struct.pack("!HHHHH", 0x0100, 1, 0, 0, 0) + qname + struct.pack("!HH", 16, 1)
+    family = socket.AF_INET6 if ":" in server else socket.AF_INET
+    sock = socket.socket(family, socket.SOCK_DGRAM)
+    sock.settimeout(timeout)
+    try:
+        sock.sendto(packet, (server, 53))
+        data, _addr = sock.recvfrom(2048)
+    except Exception:
+        return ""
+    finally:
+        sock.close()
+    try:
+        def skip_name(offset):
+            while True:
+                length = data[offset]
+                if length == 0:
+                    return offset + 1
+                if length & 0xC0 == 0xC0:
+                    return offset + 2
+                offset += 1 + length
+
+        answers = struct.unpack("!H", data[6:8])[0]
+        offset = skip_name(12) + 4
+        for _ in range(answers):
+            offset = skip_name(offset)
+            rtype, _rclass, _ttl, rdlen = struct.unpack("!HHIH", data[offset:offset + 10])
+            offset += 10
+            rdata = data[offset:offset + rdlen]
+            offset += rdlen
+            if rtype == 16 and rdata:
+                parts, index = [], 0
+                while index < len(rdata):
+                    size = rdata[index]
+                    index += 1
+                    parts.append(rdata[index:index + size].decode("ascii", "replace"))
+                    index += size
+                return "".join(parts).strip()
+    except Exception:
+        return ""
+    return ""
+
+
+def resolve_a(host, seconds=4.0):
+    """(ipv4 list, error) — getaddrinfo has no timeout, so it runs in a thread."""
+    box = {}
+
+    def work():
+        try:
+            box["ips"] = sorted({info[4][0] for info in socket.getaddrinfo(host, 443, socket.AF_INET)})
+        except Exception as exc:
+            box["err"] = str(exc)
+
+    thread = threading.Thread(target=work, daemon=True)
+    thread.start()
+    thread.join(seconds)
+    if "ips" in box:
+        return box["ips"], ""
+    return [], box.get("err") or "بدون پاسخ (timeout)"
+
+
+def ipv6_egress(timeout=4.0):
+    """The IPv6 address the internet sees on a *direct* (proxy-free) connection; "" if none."""
+    try:
+        infos = socket.getaddrinfo("api6.ipify.org", 443, socket.AF_INET6, socket.SOCK_STREAM)
+        host = infos[0][4][0]
+    except Exception:
+        return ""
+    try:
+        raw = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        raw.settimeout(timeout)
+        raw.connect((host, 443, 0, 0))
+        with ssl.create_default_context().wrap_socket(raw, server_hostname="api6.ipify.org") as tls:
+            tls.sendall(b"GET / HTTP/1.1\r\nHost: api6.ipify.org\r\nConnection: close\r\nUser-Agent: AI-Tool\r\n\r\n")
+            body = tls.recv(4096).split(b"\r\n\r\n", 1)[-1].decode("utf-8", "replace")
+    except Exception:
+        return ""
+    body = body.strip().splitlines()[0].strip() if body.strip() else ""
+    return body if "location" not in body.lower() else ""
+
+
+def cmd_leak():
+    """Read-only DNS + IPv6 leak check. Never starts the VPN, never changes a setting."""
+    print("\n── تست نشت DNS و IPv6 ────────────────")
+    print(f"  {DIM}فقط خواندنی: هیچ تنظیم یا نودی عوض نمی‌شود{END}")
+    problems = []
+
+    exit_address = exit_ip()
+    if exit_address:
+        country = geo_text(exit_address)
+        ok("IP خروجی تونل: " + exit_address + (f"  ·  {country}" if country else ""))
+    else:
+        warn("IP خروجی خوانده نشد (تونل وصل نیست؟) — مقایسهٔ DNS با خروجی تونل انجام نمی‌شود")
+
+    servers = system_dns_servers()
+    if servers:
+        info("DNS ویندوز: " + " , ".join(servers))
+    else:
+        warn("سرور DNS پیدا نشد (خودکار از طریق DHCP؟) — بخش DNS رد شد")
+        problems.append("dns-unknown")
+    for server in servers[:4]:
+        started = time.time()
+        echo = _dns_query_txt(DNS_ECHO_NAME, server)
+        elapsed = int((time.time() - started) * 1000)
+        if not echo:
+            bad(f"resolver {server}: پاسخ نداد ({elapsed}ms) — DNS مرده یا مسدود است")
+            problems.append("dns-dead:" + server)
+            continue
+        country = geo_text(echo)
+        if not exit_address:
+            info(f"resolver {server}: از IP {echo} بیرون می‌رود ({elapsed}ms) — بدون IP تونل قابل مقایسه نیست")
+        elif echo == exit_address:
+            ok(f"resolver {server}: از داخل تونل بیرون می‌رود ({elapsed}ms)")
+        else:
+            warn(f"resolver {server}: با IP دیگری بیرون می‌رود → نشت DNS ({elapsed}ms)"
+                 + (f"  ·  {country}" if country else ""))
+            problems.append("dns-leak:" + server)
+
+    ips, error = resolve_a("antigravity.google")
+    if ips:
+        ok("حل دامنه از مسیر ویندوز: antigravity.google → " + ", ".join(ips[:3]))
+    else:
+        bad("حل دامنه شکست خورد (" + error + ") — DNS عملاً خراب است")
+        problems.append("resolve")
+
+    v6 = host_ipv6_addresses()
+    if not v6:
+        ok("IPv6 فعالی روی ویندوز نیست — مسیری برای نشت IPv6 وجود ندارد")
+    else:
+        info("IPv6 ویندوز: " + " , ".join(v6[:3]))
+        seen = ipv6_egress()
+        if seen:
+            warn("IPv6 مستقل از تونل به اینترنت می‌رسد → ترافیک IPv6 می‌تواند از کنار پروکسی رد شود")
+            info("IP دیده‌شده روی IPv6: " + seen)
+            problems.append("ipv6")
+        else:
+            ok("IPv6 هست ولی مسیر خروج ندارد — نشت نمی‌کند")
+
+    print()
+    leaks = [p for p in problems if p.startswith(("dns-leak", "ipv6"))]
+    if leaks:
+        print(f"  {YEL}⚠️  نشت پیدا شد{END} — {len(leaks)} مورد")
+        if any(p.startswith(("dns-leak", "dns-dead")) for p in problems):
+            print(f"  {DIM}DNS: در فیلترشکن DNS تونل را روشن کن (یا در حالت TUN از DNS تونل استفاده کن).{END}")
+        if "ipv6" in problems:
+            print(f"  {DIM}IPv6: آداپتور را با Disable IPv6 خاموش کن تا ترافیک فقط از پروکسی رد شود.{END}")
+        return 1
+    if problems:
+        print(f"  {YEL}⚠️  تست کامل نشد{END} — مشکل: " + ", ".join(problems))
+        return 1
+    print(f"  {GREEN}✅ نشت DNS/IPv6 پیدا نشد{END}")
+    return 0
 
 
 def cmd_preflight():
@@ -3083,8 +3335,8 @@ if __name__ == "__main__":
             pass
         sys.exit(0)
     table = {"flow": cmd_flow, "ide": cmd_ide, "status": cmd_status,
-             "preflight": cmd_preflight, "history": cmd_history, "json": cmd_json,
-             "connect": cmd_connect}
+             "preflight": cmd_preflight, "leak": cmd_leak, "history": cmd_history,
+             "json": cmd_json, "connect": cmd_connect}
     if arg in table:
         sys.exit(table[arg]())
     if arg == "heal":

@@ -10,6 +10,7 @@ ANTI G is a small Windows desktop control panel (Python + Tkinter) that keeps **
 - **Node-change lock** — at least 30 minutes between two node switches; the default is always "keep the same node".
 - **Real progress** — stage and percentage for every step, on the dashboard, in the window title and in the taskbar.
 - **Health monitoring** — checks the tunnel, warns about disconnects, and records every IP change.
+- **DNS / IPv6 leak check** — read-only test: shows where each Windows resolver exits from, and whether IPv6 traffic escapes the tunnel.
 - **Node speed test** — TCP latency of all nodes *without* connecting to any of them (so no IP change).
 - **Launch helpers** — opens Chrome / the IDE with the right proxy arguments; system-wide proxy settings are left untouched.
 - **Backup profile** — export/import settings as an `.aitool-profile` file (never contains tokens or the PIN).
@@ -95,6 +96,7 @@ Outputs: `dist\AI-Tool.exe` and `AI-Tool-Setup.exe`. For automatic token refresh
 | **تشخیص پورت** | اگر نسخهٔ فیلترشکن پورت دیگری بدهد، خودش پورت‌های واقعی پروکسی را پیدا و در تنظیمات ثبت می‌کند |
 | **تست نودها** | سرعت TCP همهٔ نودها بدون وصل شدن و بدون تغییر IP |
 | **وزن‌سنجی اتصال** | تست دستی Preflight (فقط خواندنی)، تعمیر تونل، گزارش وضعیت کامل |
+| **تست نشت DNS و IPv6** | نشان می‌دهد هر resolver ویندوز از کدام IP بیرون می‌رود و آیا ترافیک IPv6 از کنار تونل رد می‌شود (فقط خواندنی) |
 | **اجرای Google Flow و Antigravity** | کروم/IDE با پروکسی درست، بدون دست‌کاری تنظیمات سیستم |
 | **پروفایل پشتیبان** | خروجی/ورودی تنظیمات با یک فایل `.aitool-profile` (بدون توکن و بدون PIN) |
 | **قفل PIN** | محافظت از تنظیمات حساس با هش PIN |

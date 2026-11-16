@@ -222,6 +222,7 @@ class App:
             ("بستهٔ عیب‌یابی", self.action_bundle),
             ("قفل PIN", self.action_pin),
             ("شورتکات IDE", self.action_shortcut),
+            ("تست نشت DNS/IPv6", self.action_leak),
         ]
         for index, (text, handler) in enumerate(tool_items):
             row, col = divmod(index, 4)
@@ -625,6 +626,9 @@ class App:
 
     def action_status(self):
         self.run_action("وضعیت کامل", lambda: t.cmd_status())
+
+    def action_leak(self):
+        self.run_action("تست نشت DNS و IPv6", lambda: t.cmd_leak())
 
     def _bind_summary_click(self, widget):
         widget.bind("<Button-1>", lambda _event: self.action_history())
