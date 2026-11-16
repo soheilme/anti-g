@@ -1,5 +1,60 @@
 # ANTI G — AI Tool
 
+> **Short English summary.** The rest of this README is written in Persian. This section is a quick overview for English-speaking readers; the full source, installer and history are in this repository.
+
+## Overview
+
+ANTI G is a small Windows desktop control panel (Python + Tkinter) that keeps **Google Flow** and **Antigravity** working through an **MLM VPN** tunnel — and, above all, makes sure your **exit IP does not change** unless it really has to.
+
+- **Auto-connect** — launches the MLM VPN app, reconnects the *same* node as last time, then verifies that traffic actually flows.
+- **Node-change lock** — at least 30 minutes between two node switches; the default is always "keep the same node".
+- **Real progress** — stage and percentage for every step, on the dashboard, in the window title and in the taskbar.
+- **Health monitoring** — checks the tunnel, warns about disconnects, and records every IP change.
+- **Node speed test** — TCP latency of all nodes *without* connecting to any of them (so no IP change).
+- **Launch helpers** — opens Chrome / the IDE with the right proxy arguments; system-wide proxy settings are left untouched.
+- **Backup profile** — export/import settings as an `.aitool-profile` file (never contains tokens or the PIN).
+- **Optional PIN lock** and a one-click diagnostics ZIP.
+
+**Privacy:** this repository ships **no VPN nodes and no VPN client**. Node lists and subscription UUIDs exist only in your local profile and are git-ignored.
+
+## Install
+
+1. Install and open **MLM VPN** yourself (it is not included here).
+2. Download `AI-Tool-Setup.exe` from the [latest release](../../releases/latest) and run it.
+   - Per-user install, **no administrator rights** needed; installs to `%LOCALAPPDATA%\AI Tool`.
+   - If SmartScreen appears: *More info → Run anyway*.
+3. Load your own nodes: **Restore profile** → pick your `.aitool-profile`, or select a node inside MLM.
+
+A portable build is also available: unzip `AI-Tool-portable.zip` and run `AI-Tool-GUI.bat` (requires Python).
+
+## Build from source
+
+Requirements: Windows 10/11, Python 3.10+, .NET Framework 4 (installer only).
+
+Optional packages that fix Persian text shaping in the terminal:
+
+```bat
+pip install arabic-reshaper python-bidi
+```
+
+Then create your local config (the real `agtool.ini` is not in git) and build:
+
+```bat
+copy agtool.example.ini agtool.ini
+pip install pyinstaller
+python -m PyInstaller --noconfirm --onefile --windowed --name AI-Tool ^
+  --icon agtool.ico --add-data "mlm_found_nodes.json;." --add-data "README.txt;." agtool.py
+powershell -NoProfile -Command "& 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe' '@installer\build.rsp'"
+```
+
+Outputs: `dist\AI-Tool.exe` and `AI-Tool-Setup.exe`. For automatic token refresh, set `client_id` / `client_secret` in the `[antigravity]` section of `agtool.ini` (or the `AG_CLIENT_SECRET` environment variable).
+
+## License
+
+[MIT](LICENSE) — free to use, modify and redistribute, with attribution.
+
+---
+
 <div dir="rtl">
 
 **یک کنترل‌پنل فارسی و سبک برای ویندوز که Google Flow و Antigravity را از پشت فیلترشکن MLM VPN باز می‌کند، تونل را زیر نظر می‌گیرد و — مهم‌تر از همه — حواسش هست که IP عوض نشود.**
